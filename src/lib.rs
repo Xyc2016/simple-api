@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Server, StatusCode};
 use once_cell::sync::Lazy;
-use serde_json::Value;
+use redis::Commands;
+use serde_json::{Value, json};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -41,7 +42,7 @@ impl TryInto<Response<Body>> for ResT {
 
 #[async_trait]
 pub trait ViewHandler: Send + Sync {
-    async fn call(&self, req: &mut Request<Body>) -> anyhow::Result<ResT>;
+    async fn call(&self, req: &mut Request<Body>, ctx: &mut Context) -> anyhow::Result<ResT>;
 }
 
 pub struct View {
@@ -159,7 +160,7 @@ async fn app_core(mut req: Request<Body>) -> Result<Response<Body>, Inffallible>
     }
 
     match f {
-        Some(v) => match v.handler.call(&mut req).await {
+        Some(v) => match v.handler.call(&mut req, &mut ctx).await {
             Ok(r) => match r {
                 ResT::Json(sc, v) => Ok(response_json(v.to_string(), sc).unwrap()),
                 ResT::Raw(v) => Ok(v),
@@ -215,5 +216,74 @@ impl SimpleApi {
     pub async fn add_middleware(m: Arc<dyn Middleware>) {
         let api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
         api.middlewares.lock().await.push(m);
+    }
+}
+
+#[derive(Debug)]
+pub struct RedisSession {
+    inner: Value,
+    sid: String,
+}
+
+static NO_SUCH_USER: &'static str = "NO_SUCH_USER";
+
+#[async_trait]
+impl Session<String> for RedisSession {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<Value>> {
+        Ok(self.inner.get(key).cloned())
+    }
+
+    async fn set(&self, key: &str, value: Value) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn open(sid: String) -> anyhow::Result<Self> {
+        let client = redis::Client::open("redis://localhost:6379/10")?;
+        let mut conn = client.get_connection()?;
+        let ov: Option<String> = conn.hgetall(&sid)?;
+        let v = ov.ok_or(anyhow::anyhow!(NO_SUCH_USER))?;
+        Ok(RedisSession {
+            inner: json!({"v": v}),
+            sid: sid.clone(),
+        })
+    }
+    async fn save(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+
+#[async_trait]
+pub trait Session<K>: Sized {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<Value>>;
+    async fn set(&self, key: &str, value: Value) -> anyhow::Result<()>;
+    async fn open(sid: K) -> anyhow::Result<Self>;
+    async fn save(&self) -> anyhow::Result<()>;
+}
+
+pub struct SessionMiddleware;
+
+#[async_trait]
+impl Middleware for SessionMiddleware {
+    async fn pre_process(
+        &self,
+        req: &mut Request<Body>,
+        ctx: &mut Context,
+    ) -> anyhow::Result<Option<ResT>> {
+        let sid = req.headers().get("Cookie").ok_or(anyhow::anyhow!("cant find cookie"))?.to_str()?;
+        let session = RedisSession::open(sid.to_string()).await?;
+        ctx.set("session", session);
+        Ok(None)
+    }
+
+    async fn post_process(
+        &self,
+        req: &mut Request<Body>,
+        res: &mut Response<Body>,
+        ctx: &mut Context,
+    ) -> anyhow::Result<Option<ResT>> {
+        let session = ctx.get::<RedisSession>("session").ok_or(anyhow::anyhow!("Unauthed"))?;
+        session.save().await?;
+        Ok(None)
     }
 }
