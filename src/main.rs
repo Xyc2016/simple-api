@@ -1,41 +1,18 @@
+use std::sync::Arc;
+
 use hyper::{Body, Method, Request, StatusCode, Response};
 use serde_json::json;
 use async_trait::async_trait;
-use simple_api::{ResT, SimpleApi, View, ViewHandler, Middleware, Context};
+use simple_api::{ResT, SimpleApi, View, ViewHandler, SessionMiddleware, Context, RedisSession};
 
-#[derive(Debug)]
-struct Session(String); // dummy session
-
-struct SessionMiddleware;
-#[async_trait]
-impl Middleware for SessionMiddleware {
-    async fn pre_process(
-        &self,
-        req: &mut Request<Body>,
-        ctx: &mut Context,
-    ) -> anyhow::Result<Option<ResT>> {
-        let mut session = Session("dummy".to_string());
-        ctx.set("session", session);
-        Ok(None)
-    }
-
-    async fn post_process(
-        &self,
-        req: &mut Request<Body>,
-        res: &mut Response<Body>,
-        ctx: &mut Context,
-    ) -> anyhow::Result<Option<ResT>> {
-        dbg!(ctx.get::<Session>("session"));
-        Ok(None)
-    }
-
-}
 
 struct Index;
 
 #[async_trait]
 impl ViewHandler for Index {
-    async fn call(&self, req: &mut Request<Body>) -> anyhow::Result<ResT> {
+    async fn call(&self, req: &mut Request<Body>, ctx: &mut Context) -> anyhow::Result<ResT> {
+        let session = ctx.get::<RedisSession>("session").ok_or(anyhow::anyhow!("Unauthed"))?;
+        dbg!(session);
         ResT::ok_json(json!(
             {"Hello": "World!", "path": req.uri().path()}
         ))
@@ -45,7 +22,7 @@ impl ViewHandler for Index {
 struct Unauthed;
 #[async_trait]
 impl ViewHandler for Unauthed {
-    async fn call(&self, req: &mut Request<Body>) -> anyhow::Result<ResT> {
+    async fn call(&self, req: &mut Request<Body>, ctx: &mut Context) -> anyhow::Result<ResT> {
         ResT::ret_json(
             StatusCode::UNAUTHORIZED,
             json!(
@@ -63,5 +40,6 @@ async fn main() {
         "/unauthed",
         View::new(vec![Method::GET], Box::new(Unauthed)),
     ).await;
+    SimpleApi::add_middleware(Arc::new(SessionMiddleware)).await;
     SimpleApi::run("127.0.0.1:5001").await;
 }
