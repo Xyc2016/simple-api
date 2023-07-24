@@ -1,9 +1,10 @@
+pub use crate::types::ResT;
 use async_trait::async_trait;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Server, StatusCode};
 use once_cell::sync::Lazy;
 use redis::Commands;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
@@ -12,33 +13,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+
+pub mod resp_build;
+mod types;
+
+
 pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<Mutex<SimpleApi>> =
     Lazy::new(|| Mutex::new(SimpleApi::new()));
-
-pub enum ResT {
-    Json(StatusCode, Value),
-    Raw(Response<Body>),
-}
-
-impl ResT {
-    pub fn ok_json(v: Value) -> anyhow::Result<ResT> {
-        Self::ret_json(StatusCode::OK, v)
-    }
-
-    pub fn ret_json(status_code: StatusCode, v: Value) -> anyhow::Result<ResT> {
-        anyhow::Ok(ResT::Json(status_code, v))
-    }
-}
-
-impl TryInto<Response<Body>> for ResT {
-    type Error = anyhow::Error;
-    fn try_into(self) -> Result<Response<Body>, Self::Error> {
-        match self {
-            ResT::Json(sc, v) => response_json(v.to_string(), sc),
-            ResT::Raw(v) => anyhow::Ok(v),
-        }
-    }
-}
 
 #[async_trait]
 pub trait ViewHandler: Send + Sync {
@@ -87,45 +68,12 @@ pub trait Middleware: Send + Sync {
     async fn post_process(
         &self,
         req: &mut Request<Body>,
-        res: &mut Response<Body>,
+        res: &mut ResT,
         ctx: &mut Context,
     ) -> anyhow::Result<Option<ResT>>;
 }
 
-pub fn build_response(
-    body_text: String,
-    status_code: StatusCode,
-    content_type: &str,
-) -> anyhow::Result<Response<Body>> {
-    let mut r = Response::builder()
-        .status(status_code)
-        .body(Body::from(body_text))?;
-    r.headers_mut()
-        .insert(header::CONTENT_TYPE, content_type.parse()?);
-    Ok(r)
-}
 
-pub fn response_json(body_text: String, status_code: StatusCode) -> anyhow::Result<Response<Body>> {
-    build_response(body_text, status_code, "application/json")
-}
-
-pub fn internal_server_error_resp(error: anyhow::Error) -> anyhow::Result<Response<Body>> {
-    build_response(
-        format!("Error: {}", error.to_string()),
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "text/html",
-    )
-}
-
-pub fn result_to_resp(
-    resp_result: anyhow::Result<Response<Body>>,
-) -> anyhow::Result<Response<Body>> {
-    resp_result.or_else(|e| internal_server_error_resp(e))
-}
-
-pub fn result_to_resp_force(resp_result: anyhow::Result<Response<Body>>) -> Response<Body> {
-    return result_to_resp(resp_result).unwrap();
-}
 
 pub async fn apply_middlewares_pre(
     req: &mut Request<Body>,
@@ -141,7 +89,7 @@ pub async fn apply_middlewares_pre(
     Ok(None)
 }
 
-async fn app_core(mut req: Request<Body>) -> Result<Response<Body>, Inffallible> {
+async fn app_core(mut req: Request<Body>) -> Result<ResT, Inffallible> {
     let path = req.uri().path().to_string();
     let f = GLOBAL_SIMPLE_API_INSTANCE
         .lock()
@@ -154,20 +102,17 @@ async fn app_core(mut req: Request<Body>) -> Result<Response<Body>, Inffallible>
     let middlewares = GLOBAL_SIMPLE_API_INSTANCE.lock().await.middlewares.clone();
 
     match apply_middlewares_pre(&mut req, &mut ctx, &middlewares.lock().await.borrow_mut()).await {
-        Ok(Some(v)) => return Ok(result_to_resp_force(v.try_into())),
         Ok(None) => (),
-        Err(e) => return Ok(internal_server_error_resp(e).unwrap()),
+        Ok(Some(v)) => return Ok(v),
+        Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
     }
 
     match f {
         Some(v) => match v.handler.call(&mut req, &mut ctx).await {
-            Ok(r) => match r {
-                ResT::Json(sc, v) => Ok(response_json(v.to_string(), sc).unwrap()),
-                ResT::Raw(v) => Ok(v),
-            },
-            Err(e) => Ok(internal_server_error_resp(e).unwrap()),
+            Ok(r) => Ok(r),
+            Err(e) => Ok(resp_build::internal_server_error_resp(e).unwrap()),
         },
-        None => Ok(build_response(
+        None => Ok(resp_build::build_response(
             format!("Not found: {}", path),
             StatusCode::NOT_FOUND,
             "text/html",
@@ -252,7 +197,6 @@ impl Session<String> for RedisSession {
     }
 }
 
-
 #[async_trait]
 pub trait Session<K>: Sized {
     async fn get(&self, key: &str) -> anyhow::Result<Option<Value>>;
@@ -270,7 +214,11 @@ impl Middleware for SessionMiddleware {
         req: &mut Request<Body>,
         ctx: &mut Context,
     ) -> anyhow::Result<Option<ResT>> {
-        let sid = req.headers().get("Cookie").ok_or(anyhow::anyhow!("cant find cookie"))?.to_str()?;
+        let sid = req
+            .headers()
+            .get("Cookie")
+            .ok_or(anyhow::anyhow!("cant find cookie"))?
+            .to_str()?;
         let session = RedisSession::open(sid.to_string()).await?;
         ctx.set("session", session);
         Ok(None)
@@ -279,10 +227,12 @@ impl Middleware for SessionMiddleware {
     async fn post_process(
         &self,
         req: &mut Request<Body>,
-        res: &mut Response<Body>,
+        res: &mut ResT,
         ctx: &mut Context,
     ) -> anyhow::Result<Option<ResT>> {
-        let session = ctx.get::<RedisSession>("session").ok_or(anyhow::anyhow!("Unauthed"))?;
+        let session = ctx
+            .get::<RedisSession>("session")
+            .ok_or(anyhow::anyhow!("Unauthed"))?;
         session.save().await?;
         Ok(None)
     }
