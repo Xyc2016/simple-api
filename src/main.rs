@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use hyper::{Body, Method, Request, Response, StatusCode};
+use hyper::{Body, Method, Request, StatusCode};
 use serde_json::json;
 use simple_api::{
     context::Context,
@@ -18,11 +18,13 @@ struct Index;
 impl ViewHandler for Index {
     async fn call(&self, req: &mut Request<Body>, ctx: &mut Context) -> anyhow::Result<ResT> {
         let session = ctx
-            .get::<RedisSession>("session")
-            .ok_or(anyhow::anyhow!("Unauthed"))?;
-        dbg!(session);
+            .get_mut::<RedisSession>("session").unwrap();
+        session.inner["count"] = match session.inner.get("count") {
+            Some(v) => json!(v.as_i64().unwrap() + 1),
+            None => json!(0),
+        };
         resp_build::ok_json(json!(
-            {"Hello": "World!", "path": req.uri().path()}
+            {"Hello": "World!", "path": req.uri().path(), "session": session.inner}
         ))
     }
 }

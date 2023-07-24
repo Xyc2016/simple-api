@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use hyper::{Body, Request};
 use crate::context::Context;
 use crate::types::ResT;
-use std::sync::Arc;
 
 #[async_trait]
 pub trait Middleware: Send + Sync {

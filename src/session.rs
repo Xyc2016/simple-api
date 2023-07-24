@@ -3,16 +3,14 @@ use crate::middleware::Middleware;
 pub use crate::types::ResT;
 use async_trait::async_trait;
 use cookie::Cookie;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{header, Body, Method, Request, Response, Server, StatusCode};
-use once_cell::sync::Lazy;
-use redis::{AsyncCommands, Commands};
+use hyper::{header, Body, Request};
+use redis::AsyncCommands;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct RedisSession {
-    inner: Value,
+    pub inner: Value,
     sid: String,
 }
 
@@ -106,9 +104,9 @@ impl Middleware for SessionMiddleware {
 
         match sid {
             Some(v) => {
-                let session = RedisSession::open(v)
-                    .await?
-                    .unwrap_or(RedisSession::new().await?);
+                let old_session = RedisSession::open(v)
+                    .await?;
+                let session = old_session.unwrap_or(RedisSession::new().await?);
                 ctx.set("session", session);
                 Ok(None)
             }
@@ -130,7 +128,7 @@ impl Middleware for SessionMiddleware {
             session.save().await?;
 
             let cookie = Cookie::new("session_id", session.sid.clone());
-            req.headers_mut().append(
+            res.headers_mut().append(
                 header::SET_COOKIE,
                 header::HeaderValue::from_str(cookie.to_string().as_str())?,
             );
