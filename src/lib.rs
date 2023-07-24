@@ -37,6 +37,21 @@ pub async fn apply_middlewares_pre(
     Ok(None)
 }
 
+pub async fn apply_middlewares_post(
+    req: &mut Request<Body>,
+    res: &mut ResT,
+    ctx: &mut Context,
+    middlewares: &Vec<Arc<dyn Middleware>>,
+) -> anyhow::Result<Option<ResT>> {
+    for m in middlewares.iter() {
+        match m.post_process(req, res, ctx).await {
+            Ok(None) => continue,
+            other => return other,
+        }
+    }
+    Ok(None)
+}
+
 async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
     let path = req.uri().path().to_string();
     let f = GLOBAL_SIMPLE_API_INSTANCE
@@ -57,7 +72,22 @@ async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
 
     match f {
         Some(v) => match v.handler.call(&mut req, &mut ctx).await {
-            Ok(r) => Ok(r),
+            Ok(r) => {
+                let mut res = r;
+                match apply_middlewares_post(
+                    &mut req,
+                    &mut res,
+                    &mut ctx,
+                    &middlewares.lock().await.borrow_mut(),
+                )
+                .await
+                {
+                    Ok(None) => (),
+                    Ok(Some(v)) => return Ok(v),
+                    Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
+                }
+                Ok(res)
+            }
             Err(e) => Ok(resp_build::internal_server_error_resp(e).unwrap()),
         },
         None => Ok(resp_build::build_response(
