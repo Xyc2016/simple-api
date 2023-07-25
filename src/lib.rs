@@ -17,7 +17,7 @@ pub mod middleware;
 pub mod resp_build;
 pub mod session;
 pub mod view;
-
+pub mod  builtin_middlewares;
 pub mod types;
 
 pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<Mutex<SimpleApi>> =
@@ -106,9 +106,10 @@ pub struct SimpleApi {
 
 impl SimpleApi {
     pub fn new() -> Self {
+        let _middlewares: Vec<Arc<dyn Middleware>> = vec![Arc::new(builtin_middlewares::SessionMiddleware)];
         SimpleApi {
             routes: HashMap::new(),
-            middlewares: Arc::new(Mutex::new(Vec::new())),
+            middlewares: Arc::new(Mutex::new(_middlewares)),
         }
     }
 
