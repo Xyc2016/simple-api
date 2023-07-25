@@ -1,3 +1,6 @@
-use hyper::{header, Body, Method, Request, Response, Server, StatusCode};
+use std::{any::Any, sync::Arc};
+use hyper::{Body, Response};
 
 pub type ResT = Response<Body>;
+
+pub type State = Arc<dyn Any + Send + Sync>;

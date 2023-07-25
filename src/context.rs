@@ -2,7 +2,10 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::session::{SessionProvider, Session};
+use crate::{
+    session::{Session, SessionProvider},
+    types::State,
+};
 
 pub struct AnyMap(HashMap<String, Box<dyn Any + Send + Sync>>);
 
@@ -24,14 +27,23 @@ pub struct Context {
     pub any_map: AnyMap, // like flask g
     pub session: Option<Box<dyn Session<String>>>,
     pub session_provider: Arc<dyn SessionProvider<String>>,
+    pub state: State,
 }
 
 impl Context {
-    pub fn new(session_provider: Arc<dyn SessionProvider<String>>) -> Self {
+    pub fn new(session_provider: Arc<dyn SessionProvider<String>>, state: State) -> Self {
         Context {
             any_map: AnyMap(HashMap::new()),
             session: None,
             session_provider,
+            state,
         }
+    }
+
+    pub fn get_state<T: 'static + Send + Sync>(&self) -> anyhow::Result<Arc<T>> {
+        self.state
+            .clone()
+            .downcast::<T>()
+            .map_err(|_| anyhow::anyhow!("cast failed"))
     }
 }
