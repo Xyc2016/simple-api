@@ -1,10 +1,10 @@
-use crate::{context::Context, session::Session};
+use crate::context::Context;
 use crate::middleware::Middleware;
+
 pub use crate::types::ResT;
 use async_trait::async_trait;
 use cookie::Cookie;
 use hyper::{header, Body, Request};
-use crate::session::RedisSession;
 pub struct SessionMiddleware;
 
 #[async_trait]
@@ -34,14 +34,13 @@ impl Middleware for SessionMiddleware {
 
         match sid {
             Some(v) => {
-                let old_session = RedisSession::open(v)
-                    .await?;
-                let session = old_session.unwrap_or(RedisSession::new().await?);
+                let old_session = ctx.session_provider.open(v).await?;
+                let session = old_session.unwrap_or(ctx.session_provider.new().await?);
                 ctx.session = Some(session);
                 Ok(None)
             }
             None => {
-                let session = RedisSession::new().await?;
+                let session = ctx.session_provider.new().await?;
                 ctx.session = Some(session);
                 Ok(None)
             }
