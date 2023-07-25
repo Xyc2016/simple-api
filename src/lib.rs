@@ -5,6 +5,8 @@ use crate::view::View;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server, StatusCode};
 use once_cell::sync::Lazy;
+use types::State;
+use std::any::Any;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -54,16 +56,16 @@ pub async fn apply_middlewares_post(
 
 async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
     let path = req.uri().path().to_string();
-    let (f, middlewares, mut ctx) = {
+    let (f, middlewares, mut ctx, state) = {
         let mut app_instance = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
         let f = app_instance
             .routes
             .get_mut(path.as_str())
             .map(|v| v.clone());
 
-        let ctx = Context::new(app_instance.session_provider.clone());
+        let ctx = Context::new(app_instance.session_provider.clone(), app_instance.state.clone());
         let middlewares = app_instance.middlewares.clone();
-        (f, middlewares, ctx)
+        (f, middlewares, ctx, app_instance.state.clone())
     };
 
     match apply_middlewares_pre(&mut req, &mut ctx, &middlewares.lock().await.borrow_mut()).await {
@@ -105,6 +107,7 @@ pub struct SimpleApi {
     routes: HashMap<String, Arc<View>>,
     middlewares: Arc<Mutex<Vec<Arc<dyn Middleware>>>>,
     session_provider: Arc<dyn session::SessionProvider<String>>,
+    state: State,
 }
 
 impl SimpleApi {
@@ -115,6 +118,7 @@ impl SimpleApi {
             routes: HashMap::new(),
             middlewares: Arc::new(Mutex::new(_middlewares)),
             session_provider: Arc::new(session::RedisSessionProvider),
+            state: Arc::new(()),
         }
     }
 
@@ -150,5 +154,10 @@ impl SimpleApi {
     pub async fn set_session_provider(provider: Arc<dyn session::SessionProvider<String>>) {
         let mut api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
         api.session_provider = provider;
+    }
+
+    pub async fn set_state(state: State) {
+        let mut api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
+        api.state = state;
     }
 }
