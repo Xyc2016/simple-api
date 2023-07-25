@@ -106,7 +106,7 @@ async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
 pub struct SimpleApi {
     routes: HashMap<String, Arc<View>>,
     middlewares: Arc<Mutex<Vec<Arc<dyn Middleware>>>>,
-    session_provider: Arc<dyn session::SessionProvider<String>>,
+    session_provider: Option<Arc<dyn session::SessionProvider<String>>>,
     state: State,
 }
 
@@ -117,7 +117,7 @@ impl SimpleApi {
         SimpleApi {
             routes: HashMap::new(),
             middlewares: Arc::new(Mutex::new(_middlewares)),
-            session_provider: Arc::new(session::RedisSessionProvider),
+            session_provider: None,
             state: Arc::new(()),
         }
     }
@@ -153,7 +153,7 @@ impl SimpleApi {
 
     pub async fn set_session_provider(provider: Arc<dyn session::SessionProvider<String>>) {
         let mut api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
-        api.session_provider = provider;
+        api.session_provider = Some(provider);
     }
 
     pub async fn set_state(state: State) {

@@ -12,10 +12,10 @@ use simple_api::{
     view::{View, ViewHandler},
     SimpleApi,
 };
-use tokio::sync::Mutex;
 
+#[derive(Clone)]
 struct CustomState {
-    redis_conn: Mutex<redis::aio::Connection>,
+    redis_cli: Arc<redis::Client>,
 }
 
 struct Index;
@@ -24,9 +24,9 @@ struct Index;
 impl ViewHandler for Index {
     async fn call(&self, req: &mut Request<Body>, ctx: &mut Context) -> anyhow::Result<ResT> {
         let s = ctx.get_state::<CustomState>()?;
-        let CustomState { redis_conn } = s.as_ref();
+        let CustomState { redis_cli } = s.as_ref();
 
-        let mut conn = redis_conn.lock().await;
+        let mut conn = redis_cli.get_async_connection().await?;
         conn.incr("a", 1).await?;
         let r: Option<String> = conn.get("a").await?;
         dbg!(r);
@@ -61,6 +61,7 @@ impl ViewHandler for Unauthed {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let redis_cli = Arc::new(redis::Client::open("redis://localhost:6379/10").unwrap());
     SimpleApi::add_route("/", View::new(vec![Method::GET], Box::new(Index))).await;
     SimpleApi::add_route(
         "/unauthed",
@@ -68,13 +69,12 @@ async fn main() -> anyhow::Result<()> {
     )
     .await;
     SimpleApi::set_state(Arc::new(CustomState {
-        redis_conn: Mutex::new(
-            redis::Client::open("redis://localhost:6379/10")
-                .unwrap()
-                .get_async_connection()
-                .await?,
-        ),
+        redis_cli: redis_cli.clone(),
     }))
     .await;
-    Ok(SimpleApi::run("127.0.0.1:5001").await)
+    SimpleApi::set_session_provider(Arc::new(simple_api::session::RedisSessionProvider::new(
+        redis_cli.clone(),
+    )))
+    .await;
+    Ok(SimpleApi::run("0.0.0.0:5001").await)
 }
