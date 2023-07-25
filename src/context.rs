@@ -1,7 +1,8 @@
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::session::{RedisSession, Session};
+use crate::session::{SessionProvider, Session};
 
 pub struct AnyMap(HashMap<String, Box<dyn Any + Send + Sync>>);
 
@@ -20,15 +21,17 @@ impl AnyMap {
 }
 
 pub struct Context {
-    pub any_map: AnyMap,
+    pub any_map: AnyMap, // like flask g
     pub session: Option<Box<dyn Session<String>>>,
+    pub session_provider: Arc<dyn SessionProvider<String>>,
 }
 
 impl Context {
-    pub fn new() -> Self {
+    pub fn new(session_provider: Arc<dyn SessionProvider<String>>) -> Self {
         Context {
             any_map: AnyMap(HashMap::new()),
             session: None,
+            session_provider,
         }
     }
 }

@@ -33,26 +33,6 @@ impl Session<String> for RedisSession {
         Ok(self.inner[key] = value)
     }
 
-    async fn new() -> anyhow::Result<Box<Self>> {
-        let sid = Uuid::new_v4().to_string();
-        let session = RedisSession {
-            inner: json!({}),
-            sid,
-        };
-        session.save().await?;
-        Ok(Box::new(session))
-    }
-
-    async fn open(sid: String) -> anyhow::Result<Option<Box<Self>>> {
-        let client = redis::Client::open("redis://localhost:6379/10")?;
-        let mut conn = client.get_async_connection().await?;
-        let ov: Option<String> = conn.get(build_session_key(&sid)).await?;
-        let serialized = ov.ok_or(anyhow::anyhow!(NO_SUCH_USER))?;
-        Ok(Some(Box::new(RedisSession {
-            inner: serde_json::from_str(serialized.as_str())?,
-            sid,
-        })))
-    }
     async fn save(&self) -> anyhow::Result<()> {
         let serialized = serde_json::to_string(&self.inner)?;
         let client = redis::Client::open("redis://localhost:6379/10")?;
@@ -71,15 +51,44 @@ impl Session<String> for RedisSession {
 
 #[async_trait]
 pub trait Session<K>: Send + Sync + 'static {
-    async fn new() -> anyhow::Result<Box<Self>>
-    where
-        Self: Sized;
+
     fn get(&self, key: &str) -> anyhow::Result<Option<Value>>;
     fn set(&mut self, key: &str, value: Value) -> anyhow::Result<()>;
-    async fn open(sid: K) -> anyhow::Result<Option<Box<Self>>>
-    where
-        Self: Sized;
+
     async fn save(&self) -> anyhow::Result<()>;
     fn sid(&self) -> K;
     fn value(&self) -> &Value;
+}
+
+#[async_trait]
+pub trait SessionProvider<K>: Send + Sync + 'static {
+    async fn new(&self) -> anyhow::Result<Box<dyn Session<String>>>;
+    async fn open(&self, sid: K) -> anyhow::Result<Option<Box<dyn Session<String>>>>;
+}
+
+
+pub struct RedisSessionProvider;
+
+#[async_trait]
+impl SessionProvider<String> for RedisSessionProvider {
+    async fn new(&self) -> anyhow::Result<Box<dyn Session<String>>> {
+        let sid = Uuid::new_v4().to_string();
+        let session = RedisSession {
+            inner: json!({}),
+            sid,
+        };
+        session.save().await?;
+        Ok(Box::new(session))
+    }
+
+    async fn open(&self, sid: String) -> anyhow::Result<Option<Box<dyn Session<String>>>> {
+        let client = redis::Client::open("redis://localhost:6379/10")?;
+        let mut conn = client.get_async_connection().await?;
+        let ov: Option<String> = conn.get(build_session_key(&sid)).await?;
+        let serialized = ov.ok_or(anyhow::anyhow!(NO_SUCH_USER))?;
+        Ok(Some(Box::new(RedisSession {
+            inner: serde_json::from_str(serialized.as_str())?,
+            sid,
+        })))
+    }
 }
