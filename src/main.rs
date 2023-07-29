@@ -45,7 +45,7 @@ impl ViewHandler for Index {
         ))
     }
 }
-
+static ENCRYPTE_COOKIE_KEY: &'static str = "f09f4f85f45aa93f96a5344e515a5102d766e90f9559637780d8ed61cae1c11168cbb8a152612649d31fac62ed4956de1362b0e68b52e093a8be3fcd0707282f";
 struct Unauthed;
 #[async_trait]
 impl ViewHandler for Unauthed {
@@ -72,9 +72,10 @@ async fn main() -> anyhow::Result<()> {
         redis_cli: redis_cli.clone(),
     }))
     .await;
-    SimpleApi::set_session_provider(Arc::new(simple_api::session::RedisSessionProvider::new(
-        redis_cli.clone(),
-    )))
-    .await;
+    SimpleApi::set_session_provider(Arc::new(
+        // simple_api::session::RedisSessionProvider::new(redis_cli.clone())
+        simple_api::session::CookieSessionProvider::from_hex(ENCRYPTE_COOKIE_KEY)?,
+    )).await;
+    
     Ok(SimpleApi::run("0.0.0.0:5001").await)
 }

@@ -38,7 +38,7 @@ impl Middleware for SessionMiddleware {
 
         match sid {
             Some(v) => {
-                let old_session = sp.open_session(v).await?;
+                let old_session = sp.open_session(v, Some(req.headers())).await?;
                 let session = old_session.unwrap_or(sp.new_session().await?);
                 ctx.session = Some(session);
                 Ok(None)
@@ -65,7 +65,7 @@ impl Middleware for SessionMiddleware {
                 header::HeaderValue::from_str(cookie.to_string().as_str())?,
             );
             if let Some(sp) = &ctx.session_provider {
-                sp.save_session(session.sid(), session.value()).await?;
+                sp.save_session(session.sid(), session.value(), Some(res.headers_mut())).await?;
             }
         }
         Ok(None)
