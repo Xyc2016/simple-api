@@ -1,8 +1,8 @@
+use crate::context::Context;
+use crate::types::ResT;
 use anyhow;
 use async_trait::async_trait;
 use hyper::{Body, Request};
-use crate::context::Context;
-use crate::types::ResT;
 
 #[async_trait]
 pub trait Middleware: Send + Sync {
@@ -19,4 +19,3 @@ pub trait Middleware: Send + Sync {
         ctx: &mut Context,
     ) -> anyhow::Result<Option<ResT>>;
 }
-

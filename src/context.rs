@@ -2,6 +2,8 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use tokio::sync::Mutex;
+
 use crate::{
     session::{Session, SessionProvider},
     types::State,

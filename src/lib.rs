@@ -6,7 +6,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server, StatusCode};
 use once_cell::sync::Lazy;
 use types::State;
-use std::any::Any;
+
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -22,8 +22,7 @@ pub mod session;
 pub mod types;
 pub mod view;
 
-pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<Mutex<SimpleApi>> =
-    Lazy::new(|| Mutex::new(SimpleApi::new()));
+pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<SimpleApi> = Lazy::new(|| SimpleApi::new());
 
 pub async fn apply_middlewares_pre(
     req: &mut Request<Body>,
@@ -57,15 +56,19 @@ pub async fn apply_middlewares_post(
 async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
     let path = req.uri().path().to_string();
     let (f, middlewares, mut ctx, state) = {
-        let mut app_instance = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
-        let f = app_instance
-            .routes
-            .get_mut(path.as_str())
+        let f = SimpleApi::routes()
+            .lock()
+            .await
+            .get(path.as_str())
             .map(|v| v.clone());
 
-        let ctx = Context::new(app_instance.session_provider.clone(), app_instance.state.clone());
-        let middlewares = app_instance.middlewares.clone();
-        (f, middlewares, ctx, app_instance.state.clone())
+        let sp = SimpleApi::session_provider().lock().await.clone();
+
+        let state = SimpleApi::state().lock().await.clone();
+
+        let ctx = Context::new(sp, state.clone());
+        let middlewares = SimpleApi::middlewares();
+        (f, middlewares, ctx, state)
     };
 
     match apply_middlewares_pre(&mut req, &mut ctx, &middlewares.lock().await.borrow_mut()).await {
@@ -104,10 +107,10 @@ async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
 }
 
 pub struct SimpleApi {
-    routes: HashMap<String, Arc<View>>,
+    routes: Arc<Mutex<HashMap<String, Arc<View>>>>,
     middlewares: Arc<Mutex<Vec<Arc<dyn Middleware>>>>,
-    session_provider: Option<Arc<dyn session::SessionProvider<String>>>,
-    state: State,
+    session_provider: Arc<Mutex<Option<Arc<dyn session::SessionProvider<String>>>>>,
+    state: Arc<Mutex<State>>,
 }
 
 impl SimpleApi {
@@ -115,24 +118,42 @@ impl SimpleApi {
         let _middlewares: Vec<Arc<dyn Middleware>> =
             vec![Arc::new(builtin_middlewares::SessionMiddleware)];
         SimpleApi {
-            routes: HashMap::new(),
+            routes: Arc::new(Mutex::new(HashMap::new())),
             middlewares: Arc::new(Mutex::new(_middlewares)),
-            session_provider: None,
-            state: Arc::new(()),
+            session_provider: Arc::new(Mutex::new(None)),
+            state: Arc::new(Mutex::new(Arc::new(()))),
         }
     }
 
+    pub fn instance() -> &'static SimpleApi {
+        &GLOBAL_SIMPLE_API_INSTANCE
+    }
+
+    pub fn routes() -> Arc<Mutex<HashMap<String, Arc<View>>>> {
+        Self::instance().routes.clone()
+    }
+
+    pub fn middlewares() -> Arc<Mutex<Vec<Arc<dyn Middleware>>>> {
+        Self::instance().middlewares.clone()
+    }
+
+    pub fn session_provider() -> Arc<Mutex<Option<Arc<dyn session::SessionProvider<String>>>>> {
+        Self::instance().session_provider.clone()
+    }
+
+    pub fn state() -> Arc<Mutex<State>> {
+        Self::instance().state.clone()
+    }
+
     pub async fn add_route(path: &str, view: View) {
-        let mut api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
-        api.routes.insert(path.to_string(), Arc::new(view));
+        let routes = SimpleApi::routes();
+        let mut routes = routes.lock().await;
+        routes.insert(path.to_string(), Arc::new(view));
     }
 
     pub async fn run(addr: &str) -> () {
-        // We'll bind to 127.0.0.1:3000
         let addr = addr.parse::<SocketAddr>().unwrap();
 
-        // A `Service` is needed for every connection, so this
-        // creates one from our `hello_world` function.
         let make_svc = make_service_fn(|_conn| async {
             // service_fn converts our function into a `Service`
             Ok::<_, Infallible>(service_fn(app_core))
@@ -147,17 +168,20 @@ impl SimpleApi {
     }
 
     pub async fn add_middleware(m: Arc<dyn Middleware>) {
-        let api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
-        api.middlewares.lock().await.push(m);
+        let middlewares = SimpleApi::middlewares();
+        let mut middlewares = middlewares.lock().await;
+        middlewares.push(m);
     }
 
     pub async fn set_session_provider(provider: Arc<dyn session::SessionProvider<String>>) {
-        let mut api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
-        api.session_provider = Some(provider);
+        let sp = SimpleApi::session_provider();
+        let mut session_provider = sp.lock().await;
+        *session_provider = Some(provider);
     }
 
     pub async fn set_state(state: State) {
-        let mut api = GLOBAL_SIMPLE_API_INSTANCE.lock().await;
-        api.state = state;
+        let s = SimpleApi::state();
+        let mut s = s.lock().await;
+        *s = state;
     }
 }
