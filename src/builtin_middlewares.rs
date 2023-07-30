@@ -65,7 +65,8 @@ impl Middleware for SessionMiddleware {
                 header::HeaderValue::from_str(cookie.to_string().as_str())?,
             );
             if let Some(sp) = &ctx.session_provider {
-                sp.save_session(session.sid(), session.value(), Some(res.headers_mut())).await?;
+                sp.save_session(session.sid(), session.value(), Some(res.headers_mut()))
+                    .await?;
             }
         }
         Ok(None)

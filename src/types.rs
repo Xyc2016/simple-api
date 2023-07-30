@@ -1,5 +1,5 @@
-use std::{any::Any, sync::Arc};
 use hyper::{Body, Response};
+use std::{any::Any, sync::Arc};
 
 pub type ResT = Response<Body>;
 

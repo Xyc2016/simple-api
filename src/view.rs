@@ -1,8 +1,7 @@
 use crate::context::Context;
 use crate::types::ResT;
-use hyper::{Body, Method, Request};
 use async_trait::async_trait;
-
+use hyper::{Body, Method, Request};
 
 #[async_trait]
 pub trait ViewHandler: Send + Sync {
