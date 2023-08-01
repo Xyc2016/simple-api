@@ -27,13 +27,13 @@ impl AnyMap {
 
 pub struct Context {
     pub any_map: AnyMap, // like flask g
-    pub session: Option<Box<dyn Session<String>>>,
-    pub session_provider: Option<Arc<dyn SessionProvider<String>>>,
+    pub session: Option<Box<dyn Session>>,
+    pub session_provider: Option<Arc<dyn SessionProvider>>,
     pub state: State,
 }
 
 impl Context {
-    pub fn new(session_provider: Option<Arc<dyn SessionProvider<String>>>, state: State) -> Self {
+    pub fn new(session_provider: Option<Arc<dyn SessionProvider>>, state: State) -> Self {
         Context {
             any_map: AnyMap(HashMap::new()),
             session: None,

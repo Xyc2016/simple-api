@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use crate::types::CookieMap;
 pub use crate::types::ResT;
 use async_trait::async_trait;
-use hyper::{header, http::HeaderValue, HeaderMap};
 use redis::AsyncCommands;
 use serde_json::{json, Value};
 use uuid::Uuid;
+use std::any;
 
 static EMPTY_STRING: String = String::new();
 
@@ -30,7 +31,7 @@ static SESSION_PREFIX: &'static str = "session";
 const ENCRYPTED_SESSION_COOKIE_NAME: &'static str = "encrypted_session";
 
 #[async_trait]
-impl Session<String> for RedisSession {
+impl Session for RedisSession {
     fn get(&self, key: &str) -> anyhow::Result<Option<Value>> {
         Ok(self.inner.get(key).cloned())
     }
@@ -39,36 +40,31 @@ impl Session<String> for RedisSession {
         Ok(self.inner[key] = value)
     }
 
-    fn sid(&self) -> String {
-        self.sid.clone()
-    }
     fn value(&self) -> &Value {
         &self.inner
     }
+    fn as_any(&self) -> &dyn any::Any {
+        self
+    }
 }
 
 #[async_trait]
-pub trait Session<K>: Send + Sync + 'static {
+pub trait Session: Send + Sync + 'static + any::Any {
     fn get(&self, key: &str) -> anyhow::Result<Option<Value>>;
     fn set(&mut self, key: &str, value: Value) -> anyhow::Result<()>;
-    fn sid(&self) -> K;
     fn value(&self) -> &Value;
+    fn as_any(&self) -> &dyn any::Any;
 }
 
 #[async_trait]
-pub trait SessionProvider<K>: Send + Sync + 'static {
-    async fn new_session(&self) -> anyhow::Result<Box<dyn Session<String>>>;
+pub trait SessionProvider: Send + Sync + 'static {
+    // flask里SecureCookieSessionInterface是用的策略是：cookie里找不到session内容，或者session内容解码失败，都创建一个新的session
+    // 这里也都参考这个来实现吧
     async fn open_session(
         &self,
-        sid: K,
-        headers: Option<&HeaderMap<HeaderValue>>,
-    ) -> anyhow::Result<Option<Box<dyn Session<String>>>>;
-    async fn save_session(
-        &self,
-        sid: K,
-        value: &Value,
-        headers: Option<&mut HeaderMap<HeaderValue>>,
-    ) -> anyhow::Result<()>;
+        cookie_map: &CookieMap,
+    ) -> anyhow::Result<Option<Box<dyn Session>>>;
+    async fn save_session(&self, session: &Box<dyn Session>, res: &mut ResT) -> anyhow::Result<()>;
 }
 
 pub struct RedisSessionProvider {
@@ -79,167 +75,50 @@ impl RedisSessionProvider {
     pub fn new(redis_cli: Arc<redis::Client>) -> Self {
         RedisSessionProvider { redis_cli }
     }
-}
 
-#[async_trait]
-impl SessionProvider<String> for RedisSessionProvider {
-    async fn new_session(&self) -> anyhow::Result<Box<dyn Session<String>>> {
+    fn new_session(&self) -> Box<dyn Session> {
         let sid = Uuid::new_v4().to_string();
         let session = RedisSession {
             inner: json!({}),
             sid,
         };
-        self.save_session(session.sid(), session.value(), None)
-            .await?;
-        Ok(Box::new(session))
+        Box::new(session)
     }
+}
 
+#[async_trait]
+impl SessionProvider for RedisSessionProvider {
     async fn open_session(
         &self,
-        sid: String,
-        headers: Option<&HeaderMap<HeaderValue>>,
-    ) -> anyhow::Result<Option<Box<dyn Session<String>>>> {
+        cookie_map: &CookieMap,
+    ) -> anyhow::Result<Option<Box<dyn Session>>> {
+        let sid = match cookie_map.get("session_id") {
+            Some(v) => v,
+            None => return Ok(Some(self.new_session())),
+        };
         let mut conn = self.redis_cli.get_async_connection().await?;
         let ov: Option<String> = conn.get(build_session_key(&sid)).await?;
         let serialized = ov.ok_or(anyhow::anyhow!(NO_SUCH_USER))?;
         Ok(Some(Box::new(RedisSession {
             inner: serde_json::from_str(serialized.as_str())?,
-            sid,
+            sid: sid.to_string(),
         })))
     }
 
-    async fn save_session(
-        &self,
-        sid: String,
-        value: &Value,
-        headers: Option<&mut HeaderMap<HeaderValue>>,
-    ) -> anyhow::Result<()> {
+    async fn save_session(&self, session: &Box<dyn Session>, res: &mut ResT) -> anyhow::Result<()> {
+        let session = session.as_any().downcast_ref::<RedisSession>().ok_or(anyhow::anyhow!("downcast failed"))?;
+        let sid = session.sid.as_str();
+        let value = session.value();
         let mut conn = self.redis_cli.get_async_connection().await?;
         let serialized = serde_json::to_string(value)?;
         conn.set(build_session_key(&sid), serialized).await?;
-        Ok(())
-    }
-}
 
-// Below is CookieSessionProvider
-#[derive(Debug)]
-pub struct CookieSession(Value);
+        let cookie = cookie::Cookie::new("session_id", sid.to_string());
+        res.headers_mut().append(
+            header::SET_COOKIE,
+            header::HeaderValue::from_str(cookie.to_string().as_str())?,
+        );
 
-#[async_trait]
-impl Session<String> for CookieSession {
-    fn get(&self, key: &str) -> anyhow::Result<Option<Value>> {
-        Ok(self.0.get(key).cloned())
-    }
-
-    fn set(&mut self, key: &str, value: Value) -> anyhow::Result<()> {
-        Ok(self.0[key] = value)
-    }
-
-    fn sid(&self) -> String {
-        return EMPTY_STRING.clone();
-    }
-    fn value(&self) -> &Value {
-        &self.0
-    }
-}
-
-pub struct CookieSessionProvider(cookie::Key);
-
-impl CookieSessionProvider {
-    pub fn new(key: cookie::Key) -> Self {
-        CookieSessionProvider(key)
-    }
-
-    pub fn from_hex(hex: &str) -> anyhow::Result<Self> {
-        Ok(CookieSessionProvider(cookie::Key::from(&hex::decode(hex)?)))
-    }
-
-    pub fn key(&self) -> &cookie::Key {
-        &self.0
-    }
-}
-
-fn get_value_from_cookie_string(cookies_string: &str, key: &str) -> Option<String> {
-    for cookie in cookie::Cookie::split_parse(cookies_string) {
-        let ck = cookie.unwrap();
-        let (name, value) = ck.name_value();
-        match name {
-            ENCRYPTED_SESSION_COOKIE_NAME => return Some(value.to_owned()),
-            _ => continue,
-        }
-    }
-    None
-}
-
-#[async_trait]
-impl SessionProvider<String> for CookieSessionProvider {
-    async fn new_session(&self) -> anyhow::Result<Box<dyn Session<String>>> {
-        Ok(Box::new(CookieSession(json!({}))))
-    }
-
-    async fn open_session(
-        &self,
-        sid: String,
-        headers: Option<&HeaderMap<HeaderValue>>,
-    ) -> anyhow::Result<Option<Box<dyn Session<String>>>> {
-        let headers = headers.ok_or(anyhow::anyhow!("headers must not be none"))?;
-        let cookies_string = match headers.get(header::COOKIE) {
-            None => return Err(anyhow::anyhow!(NO_COOKIE)),
-            Some(v) => v.to_str()?,
-        };
-
-        let encrypted_session =
-            get_value_from_cookie_string(cookies_string, ENCRYPTED_SESSION_COOKIE_NAME)
-                .ok_or(anyhow::anyhow!("encrypted_session not found"))?;
-
-        dbg!(&encrypted_session);
-
-        let cookie_jar = cookie::CookieJar::new();
-
-        let session_cookie = cookie_jar
-            .private(self.key())
-            .decrypt(cookie::Cookie::new(
-                ENCRYPTED_SESSION_COOKIE_NAME,
-                encrypted_session,
-            ))
-            .ok_or(anyhow::anyhow!("Can't decrypt cookie"))?;
-
-        let session_string = session_cookie.value();
-        let value: Value = serde_json::from_str(session_string)?;
-        Ok(Some(Box::new(CookieSession(value))))
-    }
-
-    async fn save_session(
-        &self,
-        sid: String,
-        value: &Value,
-        headers: Option<&mut HeaderMap<HeaderValue>>,
-    ) -> anyhow::Result<()> {
-        let serialized = serde_json::to_string(value)?;
-
-        let mut cookie_jar = cookie::CookieJar::new();
-
-        cookie_jar.private_mut(self.key()).add(cookie::Cookie::new(
-            ENCRYPTED_SESSION_COOKIE_NAME,
-            serialized,
-        ));
-        let encrypted_cookie_content = cookie_jar
-            .get(ENCRYPTED_SESSION_COOKIE_NAME)
-            .ok_or(anyhow::anyhow!("Can't decrypt cookie"))?
-            .value()
-            .to_string();
-
-        headers
-            .ok_or(anyhow::anyhow!(
-                "headers must not be none when using CookieSessionProvider"
-            ))?
-            .insert(
-                header::SET_COOKIE,
-                header::HeaderValue::from_str(
-                    &cookie::Cookie::new(ENCRYPTED_SESSION_COOKIE_NAME, encrypted_cookie_content)
-                        .to_string(),
-                )?,
-            );
         Ok(())
     }
 }
