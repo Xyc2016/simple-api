@@ -6,7 +6,6 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server, StatusCode};
 use once_cell::sync::Lazy;
 use types::State;
-
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -21,6 +20,7 @@ pub mod resp_build;
 pub mod session;
 pub mod types;
 pub mod view;
+pub mod utils;
 
 pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<SimpleApi> = Lazy::new(|| SimpleApi::new());
 
@@ -109,7 +109,7 @@ async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
 pub struct SimpleApi {
     routes: Arc<Mutex<HashMap<String, Arc<View>>>>,
     middlewares: Arc<Mutex<Vec<Arc<dyn Middleware>>>>,
-    session_provider: Arc<Mutex<Option<Arc<dyn session::SessionProvider<String>>>>>,
+    session_provider: Arc<Mutex<Option<Arc<dyn session::SessionProvider>>>>,
     state: Arc<Mutex<State>>,
 }
 
@@ -137,7 +137,7 @@ impl SimpleApi {
         Self::instance().middlewares.clone()
     }
 
-    pub fn session_provider() -> Arc<Mutex<Option<Arc<dyn session::SessionProvider<String>>>>> {
+    pub fn session_provider() -> Arc<Mutex<Option<Arc<dyn session::SessionProvider>>>> {
         Self::instance().session_provider.clone()
     }
 
@@ -173,7 +173,7 @@ impl SimpleApi {
         middlewares.push(m);
     }
 
-    pub async fn set_session_provider(provider: Arc<dyn session::SessionProvider<String>>) {
+    pub async fn set_session_provider(provider: Arc<dyn session::SessionProvider>) {
         let sp = SimpleApi::session_provider();
         let mut session_provider = sp.lock().await;
         *session_provider = Some(provider);
