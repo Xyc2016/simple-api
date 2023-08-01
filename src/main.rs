@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     }))
     .await;
     SimpleApi::set_session_provider(Arc::new(
-        // simple_api::session::RedisSessionProvider::new(redis_cli.clone())
+        // simple_api::session::RedisSessionProvider::new(redis_cli.clone()),
         simple_api::session::CookieSessionProvider::from_hex(ENCRYPTE_COOKIE_KEY)?,
     ))
     .await;

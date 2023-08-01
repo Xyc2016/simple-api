@@ -1,6 +1,6 @@
 use hyper::{Body, Response};
-use std::{any::Any, sync::Arc};
 use std::collections::HashMap;
+use std::{any::Any, sync::Arc};
 
 pub type ResT = Response<Body>;
 
