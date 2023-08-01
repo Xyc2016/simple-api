@@ -5,13 +5,13 @@ use crate::view::View;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server, StatusCode};
 use once_cell::sync::Lazy;
-use types::State;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use types::State;
 
 pub mod builtin_middlewares;
 pub mod context;
@@ -19,8 +19,8 @@ pub mod middleware;
 pub mod resp_build;
 pub mod session;
 pub mod types;
-pub mod view;
 pub mod utils;
+pub mod view;
 
 pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<SimpleApi> = Lazy::new(|| SimpleApi::new());
 

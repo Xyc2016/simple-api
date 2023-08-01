@@ -1,7 +1,7 @@
 pub mod cookie {
-    use std::collections::HashMap;
-    use cookie::Cookie;
     use crate::types::CookieMap;
+    use cookie::Cookie;
+    use std::collections::HashMap;
 
     pub fn parse_cookie(cookies_string: &str) -> CookieMap {
         let mut map = HashMap::new();
