@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use types::State;
 
-pub mod builtin_middlewares;
+pub mod middlewares;
 pub mod context;
 pub mod middleware;
 pub mod resp_build;
@@ -116,7 +116,7 @@ pub struct SimpleApi {
 impl SimpleApi {
     pub fn new() -> Self {
         let _middlewares: Vec<Arc<dyn Middleware>> =
-            vec![Arc::new(builtin_middlewares::SessionMiddleware)];
+            vec![Arc::new(middlewares::SessionMiddleware)];
         SimpleApi {
             routes: Arc::new(Mutex::new(HashMap::new())),
             middlewares: Arc::new(Mutex::new(_middlewares)),
