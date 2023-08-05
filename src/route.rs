@@ -17,8 +17,8 @@ pub fn match_view(
     for view in routes.iter() {
         let re = &view.re_path();
         if let Some(caps) = re.captures(&path) {
-            let vpas = caps_to_map(re, &caps);
-            return Some((view.clone(), vpas));
+            let view_args = caps_to_map(re, &caps);
+            return Some((view.clone(), view_args));
         }
     }
     None

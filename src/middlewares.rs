@@ -1,19 +1,19 @@
-use crate::context::Context;
 use crate::middleware::Middleware;
+use crate::{context::Context, types::HttpRequest};
 
 pub use crate::types::HttpResonse;
 use crate::utils;
 use anyhow::Ok;
 use async_trait::async_trait;
 
-use hyper::{header, Body, Request};
+use hyper::header;
 pub struct SessionMiddleware;
 
 #[async_trait]
 impl Middleware for SessionMiddleware {
     async fn pre_process(
         &self,
-        req: &mut Request<Body>,
+        req: &mut HttpRequest,
         ctx: &mut Context,
     ) -> anyhow::Result<Option<HttpResonse>> {
         let sp = match ctx.session_provider {
@@ -34,7 +34,7 @@ impl Middleware for SessionMiddleware {
 
     async fn post_process(
         &self,
-        _req: &mut Request<Body>,
+        _req: &mut HttpRequest,
         res: &mut HttpResonse,
         ctx: &mut Context,
     ) -> anyhow::Result<Option<HttpResonse>> {

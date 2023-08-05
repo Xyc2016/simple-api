@@ -3,7 +3,7 @@ use crate::middleware::Middleware;
 use crate::types::HttpResonse;
 use crate::view::View;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Server, StatusCode};
+use hyper::{Server, StatusCode};
 use once_cell::sync::Lazy;
 use route::match_view;
 use std::borrow::BorrowMut;
@@ -12,7 +12,7 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use types::State;
+use types::{State, HttpRequest};
 use std::any;
 
 pub mod context;
@@ -28,7 +28,7 @@ pub mod view;
 pub static GLOBAL_SIMPLE_API_INSTANCE: Lazy<SimpleApi> = Lazy::new(|| SimpleApi::new());
 
 pub async fn apply_middlewares_pre(
-    req: &mut Request<Body>,
+    req: &mut HttpRequest,
     ctx: &mut Context,
     middlewares: &Vec<Arc<dyn Middleware>>,
 ) -> anyhow::Result<Option<HttpResonse>> {
@@ -42,7 +42,7 @@ pub async fn apply_middlewares_pre(
 }
 
 pub async fn apply_middlewares_post(
-    req: &mut Request<Body>,
+    req: &mut HttpRequest,
     res: &mut HttpResonse,
     ctx: &mut Context,
     middlewares: &Vec<Arc<dyn Middleware>>,
@@ -56,7 +56,7 @@ pub async fn apply_middlewares_post(
     Ok(None)
 }
 
-async fn app_core(mut req: Request<Body>) -> Result<HttpResonse, Infallible> {
+async fn app_core(mut req: HttpRequest) -> Result<HttpResonse, Infallible> {
     let path = req.uri().path().to_string();
     let (view, mut ctx) = {
         let view_and_vpas = {
@@ -65,7 +65,7 @@ async fn app_core(mut req: Request<Body>) -> Result<HttpResonse, Infallible> {
 
             match_view(&_routes, &path)
         };
-        let (view, vpas) = match view_and_vpas {
+        let (view, view_args) = match view_and_vpas {
             Some(v) => (Some(v.0), Some(v.1)),
             None => (None, None),
         };
@@ -74,7 +74,7 @@ async fn app_core(mut req: Request<Body>) -> Result<HttpResonse, Infallible> {
 
         let state = SimpleApi::state().lock().await.clone();
 
-        let ctx = Context::new(sp, state, vpas);
+        let ctx = Context::new(sp, state, view_args);
         (view, ctx)
     };
     
