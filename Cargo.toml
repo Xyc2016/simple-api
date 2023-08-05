@@ -2,6 +2,13 @@
 name = "simple-api"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A simple web framework for learing Rust"
+homepage = "https://github.com/Xyc2016/simple-api"
+repository = "https://github.com/Xyc2016/simple-api"
+readme = "README.md"
+keywords = ["web", "framework"]
+categories = ["web-programming"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
