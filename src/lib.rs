@@ -18,6 +18,7 @@ use std::any;
 pub mod context;
 pub mod middleware;
 pub mod middlewares;
+pub mod views;
 pub mod response;
 pub mod route;
 pub mod session;
