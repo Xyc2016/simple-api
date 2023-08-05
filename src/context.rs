@@ -2,11 +2,9 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
-
 use crate::{
     session::{Session, SessionProvider},
-    types::State,
+    types::{State, ViewPathArgs},
 };
 
 pub struct AnyMap(HashMap<String, Box<dyn Any + Send + Sync>>);
@@ -30,15 +28,21 @@ pub struct Context {
     pub session: Option<Box<dyn Session>>,
     pub session_provider: Option<Arc<dyn SessionProvider>>,
     pub state: State,
+    pub vpas: Option<ViewPathArgs>, // 只有在route匹配失败时，才会为None。
 }
 
 impl Context {
-    pub fn new(session_provider: Option<Arc<dyn SessionProvider>>, state: State) -> Self {
+    pub fn new(
+        session_provider: Option<Arc<dyn SessionProvider>>,
+        state: State,
+        vpas: Option<ViewPathArgs>,
+    ) -> Self {
         Context {
             any_map: AnyMap(HashMap::new()),
             session: None,
             session_provider,
             state,
+            vpas,
         }
     }
 

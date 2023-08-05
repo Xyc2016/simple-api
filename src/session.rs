@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use crate::types::CookieMap;
-pub use crate::types::ResT;
+pub use crate::types::HttpResonse;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::Mac;
 use hyper::header;
 use redis::AsyncCommands;
-use serde::Serialize;
+
 use serde_json::{json, Value};
 use sha2::Sha256;
 use std::any;
@@ -66,7 +66,11 @@ pub trait SessionProvider: Send + Sync + 'static {
         &self,
         cookie_map: &CookieMap,
     ) -> anyhow::Result<Option<Box<dyn Session>>>;
-    async fn save_session(&self, session: &Box<dyn Session>, res: &mut ResT) -> anyhow::Result<()>;
+    async fn save_session(
+        &self,
+        session: &Box<dyn Session>,
+        res: &mut HttpResonse,
+    ) -> anyhow::Result<()>;
 }
 
 pub struct RedisSessionProvider {
@@ -107,7 +111,11 @@ impl SessionProvider for RedisSessionProvider {
         })))
     }
 
-    async fn save_session(&self, session: &Box<dyn Session>, res: &mut ResT) -> anyhow::Result<()> {
+    async fn save_session(
+        &self,
+        session: &Box<dyn Session>,
+        res: &mut HttpResonse,
+    ) -> anyhow::Result<()> {
         let session = session
             .as_any()
             .downcast_ref::<RedisSession>()
@@ -220,7 +228,11 @@ impl SessionProvider for CookieSessionProvider {
         ))))
     }
 
-    async fn save_session(&self, session: &Box<dyn Session>, res: &mut ResT) -> anyhow::Result<()> {
+    async fn save_session(
+        &self,
+        session: &Box<dyn Session>,
+        res: &mut HttpResonse,
+    ) -> anyhow::Result<()> {
         let session_value = serde_json::to_string(session.value())?;
         let sigature = get_signature(&self.key, &session_value);
         let cookie_value = format!(

@@ -1,20 +1,13 @@
 use crate::context::Context;
-use crate::types::ResT;
+use crate::types::HttpResonse;
 use async_trait::async_trait;
 use hyper::{Body, Method, Request};
+use regex::Regex;
 
 #[async_trait]
-pub trait ViewHandler: Send + Sync {
-    async fn call(&self, req: &mut Request<Body>, ctx: &mut Context) -> anyhow::Result<ResT>;
-}
-
-pub struct View {
-    pub methods: Vec<Method>,
-    pub handler: Box<dyn ViewHandler>,
-}
-
-impl View {
-    pub fn new(methods: Vec<Method>, handler: Box<dyn ViewHandler>) -> Self {
-        View { methods, handler }
-    }
+pub trait View: Send + Sync {
+    async fn call(&self, req: &mut Request<Body>, ctx: &mut Context)
+        -> anyhow::Result<HttpResonse>;
+    fn methods(&self) -> Vec<Method>;
+    fn re_path(&self) -> Regex;
 }

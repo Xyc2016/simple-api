@@ -1,5 +1,5 @@
 use crate::context::Context;
-use crate::types::ResT;
+use crate::types::HttpResonse;
 use anyhow;
 use async_trait::async_trait;
 use hyper::{Body, Request};
@@ -10,12 +10,12 @@ pub trait Middleware: Send + Sync {
         &self,
         req: &mut Request<Body>,
         ctx: &mut Context,
-    ) -> anyhow::Result<Option<ResT>>;
+    ) -> anyhow::Result<Option<HttpResonse>>;
 
     async fn post_process(
         &self,
         req: &mut Request<Body>,
-        res: &mut ResT,
+        res: &mut HttpResonse,
         ctx: &mut Context,
-    ) -> anyhow::Result<Option<ResT>>;
+    ) -> anyhow::Result<Option<HttpResonse>>;
 }

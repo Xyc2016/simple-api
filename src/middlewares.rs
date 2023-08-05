@@ -1,11 +1,11 @@
 use crate::context::Context;
 use crate::middleware::Middleware;
 
-pub use crate::types::ResT;
+pub use crate::types::HttpResonse;
 use crate::utils;
 use anyhow::Ok;
 use async_trait::async_trait;
-use cookie::{time::util, Cookie};
+
 use hyper::{header, Body, Request};
 pub struct SessionMiddleware;
 
@@ -15,7 +15,7 @@ impl Middleware for SessionMiddleware {
         &self,
         req: &mut Request<Body>,
         ctx: &mut Context,
-    ) -> anyhow::Result<Option<ResT>> {
+    ) -> anyhow::Result<Option<HttpResonse>> {
         let sp = match ctx.session_provider {
             Some(ref v) => v,
             None => return Ok(None),
@@ -34,10 +34,10 @@ impl Middleware for SessionMiddleware {
 
     async fn post_process(
         &self,
-        req: &mut Request<Body>,
-        res: &mut ResT,
+        _req: &mut Request<Body>,
+        res: &mut HttpResonse,
         ctx: &mut Context,
-    ) -> anyhow::Result<Option<ResT>> {
+    ) -> anyhow::Result<Option<HttpResonse>> {
         if let (Some(session), Some(sp)) = (&ctx.session, &ctx.session_provider) {
             sp.save_session(session, res).await?;
         }

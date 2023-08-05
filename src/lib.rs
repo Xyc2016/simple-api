@@ -1,22 +1,25 @@
 use crate::context::Context;
 use crate::middleware::Middleware;
-use crate::types::ResT;
+use crate::types::HttpResonse;
 use crate::view::View;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Server, StatusCode};
 use once_cell::sync::Lazy;
+use route::match_view;
 use std::borrow::BorrowMut;
-use std::collections::HashMap;
+
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use types::State;
+use std::any;
 
-pub mod middlewares;
 pub mod context;
 pub mod middleware;
+pub mod middlewares;
 pub mod resp_build;
+pub mod route;
 pub mod session;
 pub mod types;
 pub mod utils;
@@ -28,7 +31,7 @@ pub async fn apply_middlewares_pre(
     req: &mut Request<Body>,
     ctx: &mut Context,
     middlewares: &Vec<Arc<dyn Middleware>>,
-) -> anyhow::Result<Option<ResT>> {
+) -> anyhow::Result<Option<HttpResonse>> {
     for m in middlewares.iter() {
         match m.pre_process(req, ctx).await {
             Ok(None) => continue,
@@ -40,10 +43,10 @@ pub async fn apply_middlewares_pre(
 
 pub async fn apply_middlewares_post(
     req: &mut Request<Body>,
-    res: &mut ResT,
+    res: &mut HttpResonse,
     ctx: &mut Context,
     middlewares: &Vec<Arc<dyn Middleware>>,
-) -> anyhow::Result<Option<ResT>> {
+) -> anyhow::Result<Option<HttpResonse>> {
     for m in middlewares.iter() {
         match m.post_process(req, res, ctx).await {
             Ok(None) => continue,
@@ -53,61 +56,67 @@ pub async fn apply_middlewares_post(
     Ok(None)
 }
 
-async fn app_core(mut req: Request<Body>) -> Result<ResT, Infallible> {
+async fn app_core(mut req: Request<Body>) -> Result<HttpResonse, Infallible> {
     let path = req.uri().path().to_string();
-    let (f, middlewares, mut ctx, state) = {
-        let f = SimpleApi::routes()
-            .lock()
-            .await
-            .get(path.as_str())
-            .map(|v| v.clone());
+    let (view, mut ctx) = {
+        let view_and_vpas = {
+            let _routes = SimpleApi::routes();
+            let _routes = _routes.lock().await;
+
+            match_view(&_routes, &path)
+        };
+        let (view, vpas) = match view_and_vpas {
+            Some(v) => (Some(v.0), Some(v.1)),
+            None => (None, None),
+        };
 
         let sp = SimpleApi::session_provider().lock().await.clone();
 
         let state = SimpleApi::state().lock().await.clone();
 
-        let ctx = Context::new(sp, state.clone());
-        let middlewares = SimpleApi::middlewares();
-        (f, middlewares, ctx, state)
+        let ctx = Context::new(sp, state, vpas);
+        (view, ctx)
     };
-
+    
+    let middlewares = SimpleApi::middlewares();
     match apply_middlewares_pre(&mut req, &mut ctx, &middlewares.lock().await.borrow_mut()).await {
         Ok(None) => (),
         Ok(Some(v)) => return Ok(v),
         Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
     }
 
-    match f {
-        Some(v) => match v.handler.call(&mut req, &mut ctx).await {
-            Ok(r) => {
-                let mut res = r;
-                match apply_middlewares_post(
-                    &mut req,
-                    &mut res,
-                    &mut ctx,
-                    &middlewares.lock().await.borrow_mut(),
-                )
-                .await
-                {
-                    Ok(None) => (),
-                    Ok(Some(v)) => return Ok(v),
-                    Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
-                }
-                Ok(res)
-            }
-            Err(e) => Ok(resp_build::internal_server_error_resp(e).unwrap()),
-        },
-        None => Ok(resp_build::build_response(
+    let Some(view) = view else {
+        return Ok(resp_build::build_response(
             format!("Not found: {}", path),
             StatusCode::NOT_FOUND,
             "text/html",
         )
-        .unwrap()),
+        .unwrap());
+    };
+
+    match view.call(&mut req, &mut ctx).await {
+        Ok(r) => {
+            let mut res = r;
+            match apply_middlewares_post(
+                &mut req,
+                &mut res,
+                &mut ctx,
+                &middlewares.lock().await.borrow_mut(),
+            )
+            .await
+            {
+                Ok(None) => (),
+                Ok(Some(v)) => return Ok(v),
+                Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
+            }
+            Ok(res)
+        }
+        Err(e) => Ok(resp_build::internal_server_error_resp(e).unwrap()),
     }
 }
 
 pub struct SimpleApi {
-    routes: Arc<Mutex<HashMap<String, Arc<View>>>>,
+    routes: Arc<Mutex<Vec<Arc<dyn View>>>>,
     middlewares: Arc<Mutex<Vec<Arc<dyn Middleware>>>>,
     session_provider: Arc<Mutex<Option<Arc<dyn session::SessionProvider>>>>,
     state: Arc<Mutex<State>>,
@@ -115,10 +124,9 @@ pub struct SimpleApi {
 
 impl SimpleApi {
     pub fn new() -> Self {
-        let _middlewares: Vec<Arc<dyn Middleware>> =
-            vec![Arc::new(middlewares::SessionMiddleware)];
+        let _middlewares: Vec<Arc<dyn Middleware>> = vec![Arc::new(middlewares::SessionMiddleware)];
         SimpleApi {
-            routes: Arc::new(Mutex::new(HashMap::new())),
+            routes: Arc::new(Mutex::new(Vec::new())),
             middlewares: Arc::new(Mutex::new(_middlewares)),
             session_provider: Arc::new(Mutex::new(None)),
             state: Arc::new(Mutex::new(Arc::new(()))),
@@ -129,7 +137,7 @@ impl SimpleApi {
         &GLOBAL_SIMPLE_API_INSTANCE
     }
 
-    pub fn routes() -> Arc<Mutex<HashMap<String, Arc<View>>>> {
+    pub fn routes() -> Arc<Mutex<Vec<Arc<dyn View>>>> {
         Self::instance().routes.clone()
     }
 
@@ -145,10 +153,10 @@ impl SimpleApi {
         Self::instance().state.clone()
     }
 
-    pub async fn add_route(path: &str, view: View) {
+    pub async fn add_route<T: any::Any + View>(view: T) {
         let routes = SimpleApi::routes();
         let mut routes = routes.lock().await;
-        routes.insert(path.to_string(), Arc::new(view));
+        routes.push(Arc::new(view));
     }
 
     pub async fn run(addr: &str) -> () {
