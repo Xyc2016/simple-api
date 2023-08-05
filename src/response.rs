@@ -27,7 +27,7 @@ pub fn ret_json(status_code: StatusCode, v: Value) -> anyhow::Result<HttpResonse
     response_json(v.to_string(), status_code)
 }
 
-pub fn internal_server_error_resp(error: anyhow::Error) -> anyhow::Result<HttpResonse> {
+pub fn internal_server_error(error: anyhow::Error) -> anyhow::Result<HttpResonse> {
     build_response(
         format!("Error: {}", error.to_string()),
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -35,6 +35,6 @@ pub fn internal_server_error_resp(error: anyhow::Error) -> anyhow::Result<HttpRe
     )
 }
 
-pub fn internal_server_error_resp_force(error: anyhow::Error) -> HttpResonse {
-    return internal_server_error_resp(error).unwrap();
+pub fn internal_server_error_force(error: anyhow::Error) -> HttpResonse {
+    return internal_server_error(error).unwrap();
 }

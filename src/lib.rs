@@ -18,7 +18,7 @@ use std::any;
 pub mod context;
 pub mod middleware;
 pub mod middlewares;
-pub mod resp_build;
+pub mod response;
 pub mod route;
 pub mod session;
 pub mod types;
@@ -82,11 +82,11 @@ async fn app_core(mut req: Request<Body>) -> Result<HttpResonse, Infallible> {
     match apply_middlewares_pre(&mut req, &mut ctx, &middlewares.lock().await.borrow_mut()).await {
         Ok(None) => (),
         Ok(Some(v)) => return Ok(v),
-        Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
+        Err(e) => return Ok(response::internal_server_error(e).unwrap()),
     }
 
     let Some(view) = view else {
-        return Ok(resp_build::build_response(
+        return Ok(response::build_response(
             format!("Not found: {}", path),
             StatusCode::NOT_FOUND,
             "text/html",
@@ -107,11 +107,11 @@ async fn app_core(mut req: Request<Body>) -> Result<HttpResonse, Infallible> {
             {
                 Ok(None) => (),
                 Ok(Some(v)) => return Ok(v),
-                Err(e) => return Ok(resp_build::internal_server_error_resp(e).unwrap()),
+                Err(e) => return Ok(response::internal_server_error(e).unwrap()),
             }
             Ok(res)
         }
-        Err(e) => Ok(resp_build::internal_server_error_resp(e).unwrap()),
+        Err(e) => Ok(response::internal_server_error(e).unwrap()),
     }
 }
 
