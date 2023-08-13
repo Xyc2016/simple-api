@@ -1,5 +1,7 @@
 use crate::types::HttpResonse;
-use hyper::{header, Body, Response, StatusCode};
+use hyper::{header, Response, StatusCode};
+use http_body_util::Full;
+use hyper::body::Bytes;
 use serde_json::Value;
 
 pub fn build_response(
@@ -9,7 +11,7 @@ pub fn build_response(
 ) -> anyhow::Result<HttpResonse> {
     let mut r = Response::builder()
         .status(status_code)
-        .body(Body::from(body_text))?;
+        .body(Full::new(Bytes::from(body_text)))?;
     r.headers_mut()
         .insert(header::CONTENT_TYPE, content_type.parse()?);
     Ok(r)

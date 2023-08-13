@@ -1,8 +1,9 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
-use hyper::{header, Body, Method, Response, StatusCode};
+use http_body_util::Full;
+use hyper::body::Bytes;
+use hyper::{header, Method, Response, StatusCode};
 use regex::Regex;
-use tokio::fs::File;
 use tokio::io::AsyncReadExt; // for read_to_end()
 
 use crate::{
@@ -42,7 +43,7 @@ impl View for StaticFiles {
         if !file_path.exists() {
             return Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .body(Body::from("Not found"))?);
+                .body(Full::new(Bytes::from("Not found")))?);
         }
 
         let mut file = tokio::fs::File::open(file_path).await?;
@@ -51,7 +52,7 @@ impl View for StaticFiles {
         let mime = mime_guess::from_path(file_path).first_or_octet_stream();
         let mut r = Response::builder()
             .status(StatusCode::OK)
-            .body(Body::from(buf))?;
+            .body(Full::new(Bytes::from(buf)))?;
         r.headers_mut()
             .insert(header::CONTENT_TYPE, (&mime.to_string()).parse()?);
         Ok(r)

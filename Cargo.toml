@@ -13,7 +13,7 @@ categories = ["web-programming"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hyper = { version = "0.14", features = ["full"] }
+hyper = { version = "1.0.0-rc.4", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 async-trait = { version = "0.1.72" }
 once_cell = { version = "1.18.0" }
@@ -31,3 +31,5 @@ base64 = "0.21.2"
 digest = "0.9.0"
 regex = "1.9.1"
 mime_guess = "2.0.4"
+http-body-util = "0.1.0-rc.3"
+hyper-util = { git = "https://github.com/hyperium/hyper-util.git" }
